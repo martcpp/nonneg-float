@@ -1,11 +1,22 @@
 [package]
 name = "nonneg-float"
 version = "0.1.0"
-edition = "2024"
+edition = "2024"  
 authors = ["Mart <mordecaiemmanueletukudo@gmail.com>"]
 description = "A generic NonNegative float wrapper with compile-time checked macro."
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/martcpp/nonneg-float.git"
 
+[features]
+default = []
+serde = ["dep:serde"]
+
 [dependencies]
 num-traits = "0.2"
+serde = { version = "1.0", features = ["derive"], optional = true }
+
+[dev-dependencies]
+criterion = "0.6.0"
+
+[profile.bench]
+opt-level = 3

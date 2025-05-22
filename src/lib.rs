@@ -1,71 +1,117 @@
-//! A generic NonNegative float wrapper with a macro for safe construction.
+//! A generic wrapper for non-negative floating point values.
 //!
-//! Ensures the float value is non-negative at runtime and defaults to zero if no value is provided.
+//! Ensures that values are >= 0 and finite, providing safe construction
+//! methods and a convenient macro.
+//!
+//! Supports any float type implementing `num_traits::Float`.
+//!
+//! # Examples
+//!
+//! ```
+//! use nonneg_float::{NonNegative, nonneg};
+//!
+//! let zero = NonNegative::<f64>::zero();
+//! let val = NonNegative::try_new(3.14).unwrap();
+//! let macro_val = nonneg!(5.0f64).unwrap();
+//!
+//! assert_eq!(zero.get(), 0.0);
+//! assert_eq!(val.get(), 3.14);
+//! assert_eq!(macro_val.get(), 5.0);
+//! ```
 
+use std::fmt;
 use num_traits::Float;
 
-/// Wrapper type for non-negative floats.
+#[cfg(feature = "serde")]
+use serde::{Serialize, Deserialize};
+
+/// Error type returned when trying to create a `NonNegative` from an invalid value.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NonNegativeError {
+    /// The value was negative or not finite.
+    InvalidValue,
+}
+
+impl fmt::Display for NonNegativeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            NonNegativeError::InvalidValue => write!(f, "Value must be non-negative and finite"),
+        }
+    }
+}
+
+impl std::error::Error for NonNegativeError {}
+
+/// Wrapper type guaranteeing a non-negative floating-point value.
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[derive(Copy, Clone, Debug, PartialEq, PartialOrd)]
 pub struct NonNegative<T: Float>(T);
 
 impl<T: Float> NonNegative<T> {
-    /// Creates a new `NonNegative<T>` if the value is >= 0 and finite.
-    pub fn new(value: T) -> Option<Self> {
+    /// Returns a `NonNegative` wrapping zero.
+    pub fn zero() -> Self
+    where
+        T: num_traits::Zero,
+    {
+        Self(T::zero())
+    }
+
+    /// Attempts to create a new `NonNegative<T>` from a value.
+    ///
+    /// Returns `Err` if the value is negative or not finite.
+    pub fn try_new(value: T) -> Result<Self, NonNegativeError> {
         if value >= T::zero() && value.is_finite() {
-            Some(Self(value))
+            Ok(Self(value))
         } else {
-            None
+            Err(NonNegativeError::InvalidValue)
         }
     }
 
-    /// Get the inner value.
+    /// Creates a new `NonNegative<T>` or panics if invalid.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the value is negative or not finite.
+    pub fn new(value: T) -> Self {
+        Self::try_new(value).expect("Value must be non-negative and finite")
+    }
+
+    /// Returns the inner float value.
     pub fn get(&self) -> T {
         self.0
     }
 }
 
-/// Macro for easy creation of `NonNegative` values.
+impl<T: Float + num_traits::Zero> Default for NonNegative<T> {
+    fn default() -> Self {
+        Self::zero()
+    }
+}
+
+impl<T: Float + fmt::Display> fmt::Display for NonNegative<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+/// Macro to create a `NonNegative` value.
+///
+/// Returns `Result<NonNegative<T>, NonNegativeError>`.
 ///
 /// Usage:
-/// - `nonneg!(Type)` creates `NonNegative<Type>` with default 0.
-/// - `nonneg!(value)` creates with inferred type, panics if negative.
-/// - `nonneg!(Type, value)` creates with explicit type and value.
-///
-/// Panics at runtime if value is negative.
-///
-/// # Examples
-///
-/// ```
-/// use nonneg_float::{NonNegative, nonneg};
-///
-/// let a = nonneg!(f64);
-/// let b = nonneg!(5.5f64);
-/// let c = nonneg!(f32, 3.14);
-///
-/// assert_eq!(a.get(), 0.0);
-/// assert_eq!(b.get(), 5.5);
-/// assert_eq!(c.get(), 3.14);
-/// ```
+/// - `nonneg!(value)` infers type and creates a `NonNegative` from `value`.
+/// - `nonneg!(Type)` creates a default zero value of that type.
+/// - `nonneg!(Type, value)` creates a `NonNegative` of the specified type.
 #[macro_export]
 macro_rules! nonneg {
     ($t:ty) => {
-        $crate::NonNegative::<$t>::new(0.0 as $t).unwrap()
+        $crate::NonNegative::<$t>::zero()
     };
-
     ($val:expr) => {{
-        let val = $val;
-        if val < 0.0 {
-            panic!("Value must be non-negative");
-        }
-        $crate::NonNegative::new(val).unwrap()
+        $crate::NonNegative::try_new($val)
     }};
-
     ($t:ty, $val:expr) => {{
-        let val: $t = $val;
-        if val < 0.0 {
-            panic!("Value must be non-negative");
-        }
-        $crate::NonNegative::<$t>::new(val).unwrap()
+        $crate::NonNegative::<$t>::try_new($val)
     }};
 }
 
@@ -74,38 +120,58 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_new_valid() {
-        assert_eq!(NonNegative::new(5.0f64).unwrap().get(), 5.0);
-        assert_eq!(NonNegative::new(0.0f32).unwrap().get(), 0.0);
+    fn test_zero() {
+        let zero = NonNegative::<f64>::zero();
+        assert_eq!(zero.get(), 0.0);
+        let default: NonNegative<f64> = Default::default();
+        assert_eq!(default.get(), 0.0);
     }
 
     #[test]
-    fn test_new_invalid() {
-        assert!(NonNegative::new(-1.0f64).is_none());
-        assert!(NonNegative::new(f64::NEG_INFINITY).is_none());
+    fn test_try_new_valid() {
+        let val = NonNegative::try_new(3.14f64).unwrap();
+        assert_eq!(val.get(), 3.14);
     }
 
     #[test]
-    fn test_macro_default() {
-        let x = nonneg!(f64);
-        assert_eq!(x.get(), 0.0);
+    fn test_try_new_invalid() {
+        assert_eq!(
+            NonNegative::try_new(-0.1f64).unwrap_err(),
+            NonNegativeError::InvalidValue
+        );
+        assert_eq!(
+            NonNegative::try_new(f64::NAN).unwrap_err(),
+            NonNegativeError::InvalidValue
+        );
+        assert_eq!(
+            NonNegative::try_new(f64::INFINITY).unwrap_err(),
+            NonNegativeError::InvalidValue
+        );
     }
 
     #[test]
-    fn test_macro_value() {
-        let x = nonneg!(7.5f64);
-        assert_eq!(x.get(), 7.5);
+    fn test_new_panics() {
+        let _ = NonNegative::new(1.0f64); // okay
     }
 
     #[test]
-    #[should_panic(expected = "Value must be non-negative")]
-    fn test_macro_negative_panics() {
-        let _ = nonneg!(-2.0);
+    #[should_panic(expected = "Value must be non-negative and finite")]
+    fn test_new_panics_on_invalid() {
+        let _ = NonNegative::new(-1.0f64);
     }
 
     #[test]
-    fn test_macro_type_value() {
-        let x = nonneg!(f32, 3.14);
-        assert_eq!(x.get(), 3.14);
+    fn test_macro() {
+        let a = nonneg!(5.0f64).unwrap();
+        assert_eq!(a.get(), 5.0);
+
+        let b = nonneg!(f64);
+        assert_eq!(b.get(), 0.0);
+
+        let c = nonneg!(f32, 2.71).unwrap();
+        assert_eq!(c.get(), 2.71);
+
+        let d = nonneg!(-1.0f64);
+        assert!(d.is_err());
     }
 }

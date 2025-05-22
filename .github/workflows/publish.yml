@@ -1,0 +1,24 @@
+name: Publish
+
+on:
+  workflow_dispatch: # manual trigger
+  push:
+    tags:
+      - 'v*.*.*'   # trigger on semver tags like v1.0.0
+
+jobs:
+  publish-crate:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Install Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        toolchain: stable
+        override: true
+
+    - name: Publish to crates.io
+      env:
+        CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+      run: cargo publish --no-verify
