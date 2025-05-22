@@ -19,11 +19,11 @@
 //! assert_eq!(macro_val.get(), 5.0);
 //! ```
 
-use std::fmt;
 use num_traits::Float;
+use std::fmt;
 
 #[cfg(feature = "serde")]
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 /// Error type returned when trying to create a `NonNegative` from an invalid value.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -107,12 +107,8 @@ macro_rules! nonneg {
     ($t:ty) => {
         $crate::NonNegative::<$t>::zero()
     };
-    ($val:expr) => {{
-        $crate::NonNegative::try_new($val)
-    }};
-    ($t:ty, $val:expr) => {{
-        $crate::NonNegative::<$t>::try_new($val)
-    }};
+    ($val:expr) => {{ $crate::NonNegative::try_new($val) }};
+    ($t:ty, $val:expr) => {{ $crate::NonNegative::<$t>::try_new($val) }};
 }
 
 #[cfg(test)]
